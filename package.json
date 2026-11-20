@@ -1,0 +1,23 @@
+{
+  "name": "linux-security-lab",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "description": "Browser-only, zero-backend Linux security training platform: fundamentals, file permissions, users and groups, network security, log analysis and guided security investigations, with a simulated terminal. This package.json exists only to run the test suite \u2014 nothing here is required to use the app itself; opening index.html directly still works with zero dependencies and zero build step.",
+  "author": "Hussein Ammar",
+  "license": "MIT",
+  "homepage": "https://github.com/husseinammr/linux-security-lab",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/husseinammr/linux-security-lab.git"
+  },
+  "scripts": {
+    "test": "node --test",
+    "test:watch": "node --test --watch"
+  },
+  "engines": {
+    "node": ">=18"
+  },
+  "dependencies": {},
+  "devDependencies": {}
+}

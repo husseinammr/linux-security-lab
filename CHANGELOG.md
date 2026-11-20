@@ -1,0 +1,246 @@
+# Changelog
+
+All notable changes, newest first.
+
+## v1.0.0 — Linux Security Lab (first release of the derivative)
+
+Linux Security Lab is derived from **Linux Permission Lab v2.13.0** (MIT). Its history is kept below under *Upstream history*. Version numbering restarts at 1.0.0 for this project.
+
+### Added
+- **Six-section structure** — Linux Fundamentals, File Permissions, Users & Groups, Network Security, Log Analysis, Security Investigation — each with its own page, sidebar entry (keys 1–6) and home card.
+- **26 new lessons** (fundamentals 7, users 4, network 6, logs 6, investigation 3) and **46 new quiz questions**; every quiz question now has a section and the quiz filters by section ("Take this section's quiz" buttons).
+- **Terminal**: file contents for `/etc/passwd`, `/etc/group`, `/etc/shadow` (placeholder hashes), `/var/log/auth.log`, `/var/log/syslog` and scenario files; `grep` on files (`-i -v -c -n`), `head`, `tail`, `wc`, `sort`, `uniq`; single pipes (errors and the sudo notice bypass the pipe like stderr); `ip addr|link|route`, `hostname`, simulated `ping`; `ss`/`netstat` flags (`-l`, `-a`, `-p`, connections); `lastb`; `usermod`, `gpasswd`, `passwd`; `systemctl stop|start|restart|enable|disable` (root) that really change the simulated sockets and processes; stand-alone `>`, `<`, `;`, `&&`, `||` are refused with a clear message.
+- **Investigations** `inv02` (service account in the sudo group), `inv03` (cache on `0.0.0.0:6379`), `inv04` (failed logins then a success); a `section` on every investigation; optional `setup()` and `content` hooks in the scenario engine; `engine/sysstate.js` snapshots and restores accounts, services, processes and sockets when an investigation is left or reset.
+- Two redis/mysql services and processes in the simulated machine, a simulated network (`10.0.2.0/24`; documentation ranges for the "outside"), established connections consistent with the login history.
+- 4 new test files (`text-filters`, `security-lab-terminal`, `security-investigations`, `site-structure`) and the adaptation of the existing ones (see TESTING.md).
+
+### Changed
+- Rebranded to **Linux Security Lab** by **Hussein Ammar**: title, metadata, footer, About, README, package metadata, host name (`security-lab`), storage key (`lsl_state_v1`), event names (`lsl:*`).
+- The investigation panel moved from under the Terminal to the **Security Investigation** page; the same terminal is moved between the Terminal and Investigation views (history and session are kept).
+- The first investigation step is labelled **Incident** (was "Briefing"); lessons are organised by section; `journalctl` prints the same syslog-style lines as `auth.log`.
+- The terminal prompt hint, help text and command reference were extended; the permission lessons `su vs sudo` and `escalation` moved to Users & Groups.
+- Old click handler for the terminal window bound to the decorative hero preview; it is now bound to the real terminal.
+
+### Removed
+- Interactive Labs, the 88 Security Challenges, the Progress dashboard, XP/levels, achievements and badges, the completion certificate, topic-read tracking and all persisted progress.
+- The four single-objective challenge scenarios (`tc01`–`tc04`) as a product feature. They remain, unmodified, as **test fixtures** (`tests/helpers/challenge-fixtures.js`) because they are the best coverage of the scenario engine's access checks.
+- The separate Process and Service sections (their commands stay in the terminal).
+
+### Added later in v1.0.0
+- **Complete Arabic translation** of the 26 new lessons, quiz questions 114–159 and investigations `inv02`–`inv04`, with structural tests (option counts and order, tips/warnings counts, no invisible bidi control characters).
+- **Balanced quiz**: the mixed round now draws 1–2 questions from each of the six sections (File Permissions was 69 % of the bank) — `assets/js/quiz-select.js`, tested.
+- **Sidebar**: the Permission Simulator and Calculator moved from the sidebar into the File Permissions page (their entry stays highlighted); the terminal is also mounted in that page.
+
+### Added later in v1.0.0 (2)
+- **Section 07 — Linux Architecture & History**: 12 lessons (the story of Linux, today, kernel vs distribution, the layers, the hardware, what the kernel does, kernel space vs user space, boot, processes, "everything is a file", distributions and updates, and how it all explains the other sections), 16 quiz questions and full Arabic for both. Two new diagram builders (timeline, layers). Historical dates and names were checked against several published sources, and the lessons state where sources differ.
+- **Terminal**: `lscpu`, `free [-h]`, `lsblk`, `uptime` over a simulated machine that agrees with `df -h`, `who` and `ps`; `-h` now means *human-readable* for `df`, `du`, `free` and `ls` instead of being treated as a help request.
+- Sidebar: the terminal, quiz and cheat sheet shortcuts moved to `8`, `9`, `0` (sections use `1`–`7`).
+
+### Known gaps
+- None tracked for this release. The terminal and the investigations are simulations with a fixed set of commands and one fake machine (see README, *Known limitations*).
+
+---
+
+## Upstream history (Linux Permission Lab)
+
+The entries below are the unmodified changelog of the project this one is derived from. They describe features (Labs, Challenges, XP, progress) that **no longer exist** in Linux Security Lab.
+
+## v2.13.0 — working version, not yet released
+
+No release date: this version has not been published. It adds the first complete scenario on the v2.12 Investigation framework, **SC-01 — Sensitive configuration file exposure**, and unifies the version label across the project.
+
+### Added
+- **SC-01 (`sc01`, new Investigation, +250 XP).** A fictional app (*Orbit*) has `orbit.conf` at mode 644, so accounts that are neither its owner nor in its group can read a (synthetic, labelled-placeholder) database password. The learner reads a short incident report and an explicit scope/access policy (deployer: read+write; alice: read only; nobody else; the public `orbit.conf.example` must stay readable by every account), then gathers four pieces of evidence in the real terminal (an unauthorized read, `stat`/`ls -l`, `getfacl`, `id`/`groups`), picks the diagnosis (the file's own *others* bits — the options include the harmless template, the directory, a non-existent ACL entry and the owner), fixes it with any commands they like, and verifies from both sides (a read as a denied account **and** as an allowed account). The case closes with an incident report: root cause, the learner's own evidence, the final state, the verification result.
+- **Remediation is judged by simulated access only**, through the existing `checkPathAccess` / ACL engine (no second evaluator). Accepted: `chgrp adm`+`640`, `640`+ACL for alice, `600`+ACL for alice, `600`+`g:adm` ACL, as owner via `sudo -u deployer`, … Rejected, each with the reason: `600` (alice locked out), `640` alone, `000`, `777`/`666`, `chgrp adm` alone, group write for alice, `chown` away from deployer, deleting the file, locking the directory instead, and a *deny-list* of ACL entries on a still world-readable file (required check `not-world-readable`: the others bits must grant no read). An execute bit on the config file passes with a "more permissive than necessary" advisory.
+- **`engine/investigation.js` (additive, backward compatible):** optional `verification` probes (all must run after the fix passes; the live state is re-judged when the last one runs, and an undone fix clears them); `evidence[].finding(ev)` now receives the observed command; `summarize()` receives the collected `evidence` and `verified` probes; the snapshot gains `verified` / `missingVerification`. `inv01` has no probes and behaves exactly as before.
+- **`scenarios.js`:** optional `policy` block in the briefing, a verification checklist, and an *Incident report* readout when a summary provides `report` (inv01 keeps its original readout). Terminal quotations (evidence, live feedback, report) are `dir="ltr"` so they stay readable inside the Arabic RTL panel. Still text nodes only — no HTML parsing.
+- **Localization:** complete Arabic overlay (`scenarios-data.ar.js`: title, objectives, incident, policy, evidence, diagnoses, hints, checks, verification probes, root cause, quality text) and new `sc.*` UI keys in both languages.
+
+### Fixed (found while validating the working build)
+- **"This page needs a local server" overlay shown on GitHub Pages, localhost and any slow first load (and never dismissed).** `assets/js/boot-fallback.js` treated "the app has not flagged itself ready after 900 ms" as proof that `file://` had blocked the ES modules, on every origin. The app is 39 modules / ~615 KiB with 10 sequential import levels (plus a render-blocking stylesheet request before module scripts may run), so a cold load over a real network routinely exceeds 900 ms; the overlay then covered a working app and stayed until a refresh made the cache fast enough. Reproduced in Chromium: with 250 ms per request the old script showed the overlay at ~1.6 s while the app became ready at ~1.9 s, on an emulated `https://0xfuz.github.io/linux-permission-lab/`, on `http://localhost:3000`/`:8080`, and on a Pixel 7 profile with slow 4G. Slowness is no longer treated as failure. The notice now appears only on a real failure signal — an `error` event on the app's own module script (what Chrome fires for a blocked `file://` load and for a missing module) or an uncaught exception from the app's own code before it is ready; failed fonts, images, other scripts and browser extensions are ignored. On `file://` it still says "needs a local server"; on http(s) a genuine failure says "The app could not start" (reload / hard reload / clear site data) and never gives local-server advice. A 4 s watchdog remains for `file://` only, and a notice is removed if the app does become ready. No timers run on http(s).
+- **Version labels were inconsistent.** The footer displayed **v2.3** (hard-coded in `index.html` and in the English and Arabic `home.footerNote` strings in `i18n.js`) while `package.json` said 2.12.1 and the README said v2.12. All now say v2.13.0 / 2.13.0. The old version test compared only `package.json` with the README's major.minor, so it could not see the footer; new tests (`release-2.13.test.js`) require the footer fallback, both i18n footers, the README headline and *Latest* line, and the newest CHANGELOG heading to match `package.json`, and forbid any other release label in `index.html`/`i18n.js`.
+- **SC-01 policy/validator mismatch.** The policy says `orbit.conf.example` must stay readable "by everyone", but the `template-public` check only tested `monitoring`; a correct fix plus `setfacl -m u:www-data:--- orbit.conf.example` was accepted. The check now requires all five accounts (user, alice, deployer, monitoring, www-data) to read it; the English and Arabic labels say so. (A named ACL entry for the template's *owner* correctly has no effect — the owner class matches first — so denying `deployer` that way is not, and should not be, a failure.)
+- **Incident report layout (real-browser finding, English and Arabic).** Each evidence/verification label ran straight into its `$ command` quote on one line, and section headings touched the preceding text. The quotes are now blocks and the headings have spacing (`scenarios.css`).
+- **Screen-reader feedback.** Only step changes were announced, so ticking evidence items or verification probes was silent. The live region now announces "Evidence collected: n / total" and "Verification step done: n / total" (English and Arabic).
+- **Keyboard focus was lost after a correct diagnosis** (focus fell to `<body>`): the Submit button stays in the DOM but becomes disabled, and browsers cannot focus a disabled control. `render()` now falls back to the hint button, then Back (`resolveFocusId`). This path is shared with inv01, so it improves that investigation too.
+- **Reset progress left stale completion ticks** in the scenario list until a reload (storage was cleared, the panel never re-rendered). The panel now subscribes to the progress-changed event; an open scenario is kept.
+- **Light-theme contrast inside the scenario panel.** The global amber heading colour measures ≈1.5:1 and the tertiary text token ≈3:1 on the light surfaces (AA needs 4.5:1). Scoped overrides (`#8a5a00` ≈4.9:1; secondary text ≈6:1) apply only inside `.scenario-panel` in the light theme. The same global tokens are used elsewhere in the app and were **not** changed (out of scope); that wider contrast issue remains.
+
+### Fixed — permission-engine audit against a real Linux kernel
+The access rules were audited by applying identical states and operations to a real Linux 6.x kernel (ext4 + POSIX ACLs, GNU coreutils) and to the simulator, then diffing every verdict. Traversal (9,000 checks), create/delete/rename including the sticky bit (18,000) and the `chmod`/`chown`/`chgrp` permission rules (1,980) showed **no differences**. Of 47,658 random owner/group/mode/ACL access checks, **12 (0.025%) still differ** — all 12 are one deliberate, documented kernel quirk (an ACL whose mask is `---`; in every one the simulator denies where the kernel allows, none involves root; see Known limits). The other differences found were:
+- **`chmod` after `setfacl` (SC-01 false positives and negatives).** The simulator recalculated the ACL mask as a union after `chmod`; Linux makes the new group digit the mask and leaves the owning-group entry alone. So `setfacl -m u:alice:r--` then `chmod 600` locked alice out on Linux but not in the simulator, and `setfacl u:alice:rw-` then `chmod 640` capped alice to read-only on Linux but not here. Of 4,000 random SC-01 remediation sequences the validator disagreed with the kernel's verdict on the stated policy in 17 (13 accepted a state that locks out or exposes, 4 rejected a valid one) — all traced to this one cause. The model now follows the kernel: once named entries exist the mode's group digit **is** the mask (`ls -l`/`stat` show it, like Linux), the owning group's entry is stored separately (`group::` in `getfacl`, with `#effective`), `chmod` sets the mask, and removing the last entry restores the digit. After the fix 3,999/4,000 agree (the remaining one depends on an unmeasured `setfacl` tool behaviour, see Known limits). Nodes built with ACL entries as fixture data keep working. `root` execute on an ACL-only `x` now also matches.
+- **`cp` copied ACL entries**; real `cp` (without `-p`/`-a`) does not, so the copy was wrongly readable by the named user. It now drops them.
+- **`mv`/`cp` onto an existing name left two nodes with the same path** (the stale one won every lookup — a realistic "replace the file" fix to SC-01 would have been judged on the old file). `mv` now replaces (under the delete/sticky rules, keeping the source's owner/mode/ACL); `cp` rewrites the contents and keeps the destination's owner, mode and ACL, needing write on that file only; `mv f f`, a directory over a file, a file over a directory and a non-empty directory are refused with the real messages.
+- **`mv` of a directory into itself or its own subtree threw `RangeError: Maximum call stack size exceeded` and detached the directory from the tree.** It is now refused: `cannot move 'a' to a subdirectory of itself`.
+- **`ls -l` on a directory with `r` but no `x`** printed full metadata; real `ls -l` fails (`?????????` rows and `Permission denied` per entry). Plain `ls` and the `x`-only case already matched.
+- **Special bits:** `chown`/`chgrp` of a non-directory now clear setuid (and setgid when the group has `x`) even for root and even when nothing changes; a non-root owner outside the file's group can no longer set setgid (`chmod 2755` → `755`); and numeric `chmod` keeps a directory's setuid/setgid like GNU chmod (sticky only from the argument). Directories keep their bits across `chown`/`chgrp`.
+- **Setgid directories:** `touch`, `mkdir`, `cp` and `ln -s` inside one now give the new entry the directory's group (new directories also get the bit) — the Learn page already taught this; the terminal did not do it.
+- **Owner no-ops:** an owner may `chown` to themselves and `chgrp` to the file's current group even if not a member (the kernel allows it; the simulator refused).
+- **`rm` removed populated directories silently** (and printed "removed /" for `/` without removing anything). It now refuses directories: `rm: cannot remove 'x': Is a directory`.
+
+### Tests
+- **582 → 826** (+244: `regression/sc01.test.js` 79, `regression/sc01-ui.test.js` 11, `regression/release-2.13.test.js` 26, `regression/audit-2.13.test.js` 75, `regression/boot-fallback.test.js` 52, and one added test in `engine/scenario-validators.test.js`). The expected values in `audit-2.13.test.js` are kernel measurements, pinned as fixtures (the test suite itself still runs only in Node).
+- **Existing tests that were changed, and why — none weakened or removed:**
+  - Six numeric assertions (and two test titles) hard-coded the scenario catalogue size (`INVESTIGATIONS.length` 1→2, `SCENARIOS.length` 5→6, the snapshot's `scenarios.total` 5→6, and the list's card count / Open-button count / card count after Back, 5→6).
+  - `engine/scenario-validators.test.js`: one assertion pinned `octal === "600"` after granting ACL entries — on Linux that file shows `660` (the group digit is the mask), so it now pins what it meant (the *others* bits look private). The test "this is exactly what modeWithin cannot see" relied on the mode hiding an `rwx` ACL; it is kept (same two assertions) on a fixture-built node, and a companion test pins that a command-created ACL now shows in the mode (`770`).
+  - `regression/sc01.test.js` (added earlier in this release): the case "ACL first, then 600" was listed as an *accepted* fix because of the old simulator behaviour; it now correctly sits with the rejected ones (alice is locked out on Linux), and the report-format test expects `mode 640` for a `600`+ACL fix, as `stat` shows.
+
+### Known limits
+- The start-up-notice fix was verified in headless Chromium against an *emulated* GitHub Pages origin (real HTTPS scheme, host and sub-path via request interception, with injected latency) and a Pixel 7 *profile*; it has not been checked on the real GitHub Pages deployment or a real Android device.
+- Browser coverage so far: headless Chromium only (Playwright, 1280px and 375px, English and Arabic, light and dark). Firefox, Safari, real devices, a real screen reader and Kali Linux are untested.
+- The kernel audit was done on one machine; the userland `setfacl`/`getfacl` tools were not available to compare. Unmeasured: whether `setfacl -x` on a **missing** entry recalculates the mask (the simulator leaves it alone; one of the 4,000 SC-01 sequences depends on this).
+- Deliberate differences still present: **12 of the 47,658 random access checks differ** — when an ACL's mask is `---` the Linux kernel skips the ACL and uses the group/others mode bits (the simulator follows POSIX and denies the named user, so it is the stricter side; SC-01 cannot accept a state this affects, because any state it accepts gives alice read through a non-empty mask — reasoning plus 0 effects in 4,000 sequences, not a proof); no default ACLs; `chmod` is octal-only (no symbolic modes, no `-R`); `rm` has no `-r`; `cp` of a directory does not require `-r`; `ls <file>` is not implemented; symlink loops are not detected. See *Simulation scope* in the README.
+
+## v2.12.1
+
+A focused review of the scenario validators (`engine/scenario.js`) for places where a check's label promised more than it enforced. No new features; no existing test changed.
+
+- **`noWorldWriteUnder()` now judges effective access, not just the mode.** It read only the "others" write bit, so named ACL entries that let *every* account write (`u:alice:rw-`, `u:monitoring:rw-`, … or a group everyone belongs to) passed it — e.g. tc01 could be "solved" with the lab effectively world-writable. It now also flags a node that every account other than its owner can write (after the ACL mask). An ACL for only *some* accounts is still fine: that is targeted access, which `othersCannot()` covers.
+- **The reported `other::w` variant is not reachable in this model, and is now pinned by tests:** there is no `other::` ACL entry (`setfacl` accepts only `u:`/`g:` and rejects `o::`, `other::`, `m::`; the access engine ignores any other entry type), so the "others" class *is* the mode bits the check already read. A planted `other` entry can neither grant access nor hide a world-writable mode.
+- **New `accessWithin()` helper; inv01's "no more permissive than 711" advisory uses it.** `modeWithin()` compares mode bits only, so `u:www-data:rwx` on a 700 `current/` read as "minimal". `accessWithin()` compares what each account can actually do against a plain mode. `modeWithin()` is unchanged apart from a default label that now says "mode", and tc04's "own mode was not widened" advisory keeps it (its label is mode-specific).
+- **tc04 now enforces what its task says.** The task says `monitoring` must not write to or list the directory, but only listing was checked, so `setfacl -m u:monitoring:-wx conf` solved it. New required check `no-dir-write` (translated).
+- **Two labels that overclaimed were corrected:** inv01 `keep-file` ("…with unchanged content bits" — it only checks the file exists) and tc01's task ("the least permissive mode" — any mode with the same effective access is accepted, which is the intended state-based behaviour); both languages.
+- **Tests: 541 → 582** (+41, `tests/engine/scenario-validators.test.js`). Run against the v2.12.0 sources, the regression tests fail (as intended); the "legitimate ACL still passes" and "no `other::` entry" tests pass on both.
+- Reviewed and left unchanged (label and enforcement agree): `canAccess`, `cannotAccess`, `othersCannot` (effective, includes ACLs; root is excluded because it bypasses checks), `modeWithin` (bits only, now labelled as such), `ownerIs`, and the tc02/tc03 checks.
+
+## v2.12.0
+
+**Interactive Security Challenges foundation.** The lab can now judge what you *did* to the simulated system, not what you typed.
+
+- **State-based scenarios (new `engine/scenario.js`).** A scenario's files are grafted into the *same* `FS_TREE` the terminal already uses, under `/srv/lab/<id>` (no second simulator). Validation is a list of checks that ask the existing access engine what each account can do — traversal, ownership, group, named ACLs, world-writability — so any legitimate fix passes and shortcuts (`chmod 777`, deleting the file, exposing a secret file) do not. `required` checks decide pass/fail; `advisory` checks add a "works, but more permissive than necessary" note.
+- **Four challenges:** lock down a leaked deploy key (mode/ownership), directory `r` vs `x`, a wrong group on a shared report (fix with `chgrp` *or* one ACL entry), and an ACL on a file that is still unreachable because the directory lacks `--x` for that account.
+- **Investigation Mode foundation (new `engine/investigation.js`).** A reusable state machine — briefing → evidence → diagnosis → fix → verify → resolved. Evidence is recognised from what the learner actually ran in the terminal (via a new `setCommandObserver` hook; `sudo`/`su` are attributed correctly), the diagnosis unlocks only when the required evidence exists, wrong diagnoses are answered from the live state, the fix is judged by state, and the case closes only after re-checking as the affected account. First scenario: *"the site returns 403 after a deploy"* (the file's own mode is fine — a deploy left a 700 directory on the path — and a secrets file beside it must stay private).
+- **Hands-on scenarios panel under the Terminal.** Objectives, task, live success criteria (✓/✗ with the reason a check failed), progressive hints (per phase for investigations), reset, completion explanation, EN/AR. Built entirely from text nodes; announces results through a polite live region; native buttons and a real `fieldset`/`legend` radio group for the diagnosis.
+- **Progress:** completions are stored under a new `scenarioProgress` key (older saved state without it loads unchanged), XP counts toward the total, the exported snapshot gains `scenarios` and `xpBreakdown.scenarios`, and *Reset all progress* clears it.
+- **Small changes to existing code:** `filesystem.js` exports `assignPaths`; `terminal.js` gains the observer hook, `refreshTerminalPrompt()` and `terminalNotice()`; `progress.js` includes scenario XP. No command's behaviour and no existing test changed.
+- **Docs corrected:** the filesystem has **62** files + 2 symlinks, not 59 (README, home card, EN/AR strings); tab completion (v2.9) is no longer listed as open on the roadmap; added a *Simulation scope and verification status* section and *Authoring scenarios* instructions.
+- **Tests: 373 → 541** (+168): `engine/scenario`, `engine/investigation`, `regression/scenarios` (data invariants, 12 accepted fixes, 18 rejected shortcuts, observer hook, progress + backward compatibility), `regression/scenarios-ui` (unsafe-content rendering, keyboard/ARIA structure, full controller flows driven through a new `helpers/ui-harness.js`), `regression/scenarios-i18n`.
+- **Not done / limits:** not cross-checked against a real Linux system; no real-browser visual or responsive review was possible in the build environment (see README *Simulation scope*).
+
+## v2.11.0
+
+- **`find [path] -name <pattern> [-type f|d]`** — the real find syntax, scoped to a path exactly like `-perm` already was. The old bare `find <name>` keeps working as a shorthand (real find has no such form — a bare word is a path, not a pattern — but enough tutorials use it that dropping it would have broken muscle memory for no real gain).
+- **`<command> --help` / `-h` now works for all 47 commands** — one generic check in `dispatch()`, not 47 individual ones. It reuses the exact TERMINAL_COMMANDS data the Cheat Sheet's reference table is built from, so the terminal's own `--help` and the Cheat Sheet can never drift apart on what a flag does. A command with more than one documented form (`find`, `sudo`) shows all of them; aliases (`netstat`, `logout`, `vim`) resolve to the row that actually documents them; `--help` bypasses the command's own permission gate, same as real `--help` flags do.
+- 15 new tests covering both.
+
+## v2.10.0
+
+A maintenance release addressing feedback from a fresh review of the whole project (user/engineer/PM perspectives): a missing way to start over, a documentation self-contradiction, and a file that had outgrown itself.
+
+- **"Reset all progress" on the Progress page.** There was no way to clear Challenges/Labs/Quiz/read-topic progress short of clearing `localStorage` by hand in devtools — no in-app path existed at all. The new danger-zone panel clears exactly that (XP, level and achievements included, since they're derived from the same data) while leaving your language and theme preference untouched, behind a confirm dialog since it can't be undone.
+- **`terminal.js` split from 1057 lines into 7 focused files.** It had grown command-group by command-group across several releases (users, umask, system investigation, the Arch redesign, tab completion) without ever being reorganized. Now: `terminal-state.js` (session state — cwd, current user, su stack, sudo cache), `terminal-helpers.js` (printLine, path resolution, the shared deny/visibility logic), `terminal-commands-{nav,perm,identity,sysinfo}.js` (one file per command family), and `terminal.js` itself down to 267 lines of pure orchestration — the prompt, the dispatch table, tab completion, and DOM wiring. No behavior changed; same 358 tests, now passing against the split files instead of the monolith.
+- **Removed `docs/screenshots/`.** The folder still held six images from before the terminal's Arch redesign, while the README already (correctly) said "not included yet" — a real self-contradiction between what the repo claimed and what it actually shipped. Deleted rather than updated, consistent with the README's own stated reasoning: shipping stale screenshots is worse than shipping none.
+
+## v2.9.0
+
+Hardening and terminal ergonomics. No new lessons; the 47 commands are unchanged.
+
+- **Tab completion in the terminal.** Press Tab to complete a command name or a path. A unique match completes (directories get a trailing `/`); several matches extend to their common prefix, and a second Tab on an unchanged line lists the options. Completion only offers what the current user could actually `ls` — an unreadable directory completes nothing — hides dotfiles unless you type a leading `.`, and refuses lines containing quotes. Logic lives in the pure `engine/complete.js`.
+- **No more interpolated `innerHTML`.** Challenge/Lab feedback, challenge hints and the simulator's command line are now built as DOM nodes (new `utils.setFeedback`) instead of template strings, and the inline `style="color:…"` they used moved to `.feedback-*` classes. A new `dom-safety` test fails the build if an interpolated template literal is assigned to `innerHTML` or passed as `html:` anywhere except the sanitized terminal printer.
+- **GitHub Pages now publishes only the site** (`index.html`, `LICENSE` + `assets/`), not the tests, screenshots and workflow files. CI runs on Node 18, 20 and 22 to match `engines`.
+- **Changelog moved out of the README** into this file; the README keeps a short pointer. The version test now checks `CHANGELOG.md`.
+- **README is honest about `file://`**: the app is ES modules, so Chrome blocks it when opened by double-click. The recommended path is a local static server.
+
+## v2.8.0
+
+The Cheat Sheet's old "Common Linux commands" table was a hand-picked 12-row sample. Replaced it with a full, searchable reference of all 47 terminal commands and every flag they actually support.
+
+- **New `terminal-commands-data.js`** — the authoritative reference, grouped into the same four categories the terminal's own `help` text uses (navigation & files, permissions & ownership, identity & privilege, system investigation), each row carrying the command's flags, what it does, and — where the access rule actually matters — what it *requires* (e.g. `dmesg` → "root (kernel.dmesg_restrict)", `chown` → "root — even the current owner can't give a file away"). Fully bilingual via a new `terminal-commands-data.ar.js` overlay, same pattern as the existing octal-mode table.
+- **One search box now filters both tables on the page.** Typing in the existing search field filters the octal-mode table and the new command table at once; a category header hides itself automatically once every row under it is filtered out, instead of leaving a stack of empty section labels.
+- **A new regression test keeps the table from drifting**: it scans `terminal.js`'s actual dispatch table and fails if any real command is missing from the reference — so the cheat sheet can't silently fall out of sync with the terminal the way the old hand-picked table eventually would have.
+- Closed a pre-existing gap while in the area: the octal-mode table's Arabic translations weren't checked by the i18n-parity test either; both it and the new command table are now enforced.
+
+## v2.7.1
+
+Follow-up tweaks to v2.7's Arch pass, based on direct feedback on the two things that still felt dated: the neofetch fields and the single-line prompt.
+
+- **Neofetch fields swapped for more authentic ones.** `Host`/`Theme` are gone; `Kernel: 6.8.0-45` (matching what `uname -a` already reports) and `Packages: 47` (a nod to neofetch's iconic package-count line, repurposed for the command count) replace them.
+- **The prompt is now two lines, starship/powerlevel10k-style**: a context line (`user@permission-lab /path`) sits above the input, and the input row itself is reduced to a single colored `❯` glyph — no more literal `$`/`#`. The glyph carries the privilege tell on its own (green at rest, red the instant the session IS root), the same language the titlebar dot already used, so the signal is now doubled rather than competing with two different conventions.
+- Scrollback stayed single-line on purpose — a full two-line prompt repeated for every historical command would make the output hard to scan. Each echoed command now reads `user@host /path ❯ command`, compact but using the same new glyph.
+
+## v2.7.0
+
+A second, more opinionated pass on the terminal's chrome — the person who commissioned v2.6 wanted something with more character: an Arch Linux terminal, specifically.
+
+- **No more macOS traffic-light buttons.** They never did anything when clicked, so the fake affordance is gone, not just restyled — replaced by a small Arch mark. Tiling-WM terminals (the ones Arch users actually screenshot) don't have them either.
+- **Arch Blue (`#1793d1`), the project's real brand color, is now the dominant interactive accent inside the terminal** — cursor, focus ring, chip hover, the success ✓, and the path segment of the prompt. That path color is also just the stock, unmodified `PS1` color pairing on most Linux distros (green `user@host` + blue path), so it reads as authentic, not arbitrary. Red stays reserved for errors/root and green for the prompt user / safe-session dot — only the brand accent moved, not the security-semantic colors. This is scoped to `terminal.css` only; the rest of the site stays amber-branded.
+- **A neofetch-style boot banner** — a small ASCII Arch logo beside `user@permission-lab`, `OS: Arch Linux`, `Shell: bash`, etc. — replaces the old one-line welcome message. The classic ricer "open a terminal, see neofetch" moment.
+- **Flat, not glossy** — solid surfaces, no gradients, modest 8px corners instead of v2.6's glass/gloss treatment, matching real Linux terminal emulators (Alacritty/kitty/foot) rather than macOS Terminal.app.
+- Caught and fixed on mobile during this pass: the neofetch banner's two-column layout (ASCII art beside info text) broke on narrow phones because the info lines were too long and wrapped, destroying the alignment. Shortened every info line and moved the "type help" hint to its own freely-wrapping line below the grid instead of inside it.
+
+## v2.6.0
+
+A visual pass on the Terminal Simulator's chrome — no new commands, the same 47. The goal: look like a current terminal app, using only the lab's existing amber/cyan/security-semantic tokens, never a new palette.
+
+- **Session-aware titlebar.** The titlebar now shows who you actually are (`user@permission-lab`) with a live status dot — green at rest, red the instant the session IS root — the exact boundary the whole lab teaches, now visible at a glance instead of only in the prompt text. A small `bash` tag on the right completes the "real terminal tab" read.
+- **Denial explanations are now a callout, not a dim aside.** Every "why was this denied" explanation — the actual lesson, repeated across 30+ commands — renders as a distinct cyan-bordered box instead of plain muted text. Success confirmations (`created`, `chmod`, `su`, …) get a quiet ✓ instead of blending into every other line.
+- **Quick-command strip is now a horizontal scroller** with faded edges, rather than a pill grid that wrapped into a wall of buttons once the system-investigation commands were added. Chips got a `❯` prompt glyph and a small lift-and-glow on hover.
+- **Glass titlebar, glossy traffic lights**, a focus-visible glow around the whole window when the input is active, a themed scrollbar, and `font-variant-ligatures: none` so `!=`/`->`/`--` in real commands always read as their literal characters, never a stylistic ligature glyph.
+- Fixed a color-token bug caught while reviewing this pass with screenshots: part of the terminal body was accidentally using the site's theme-reactive surface tokens, so it washed out light-gray under the site's light mode. Terminals should stay dark regardless of site theme — same choice the original CSS made — so every surface/border/text color in `terminal.css` is now a literal dark value, matching that original intent, not a token that flips.
+
+## v2.5.0
+
+A content release: the terminal grows from "a filesystem with permission checks" into a small, coherent **system-investigation** toolkit — the commands a Linux admin or blue-team analyst actually reaches for, all read-only, all simulated.
+
+- **12 new commands, no pipes/execution needed.** `ps` / `ps aux` (plain `ps` only shows your own session, real behavior), `who` / `w`, `last [-n N]` / `lastlog`, `uname -a`, `df` / `du -sh <dir>`, `ss -tulpn` / `netstat -tulpn`, `systemctl status <svc>` / `list-units`, `journalctl [-u unit] [-n N]`, `dmesg`, `getcap -r /`, `crontab -l [-u user]`, and `sudo -l`.
+- **New data module, `engine/sysinfo.js`** — a static process table, systemd unit list, socket table, a unified log timeline (the single source for `journalctl`, `dmesg`, and the existing `/var/log/auth.log`/`/var/log/syslog`), login sessions/history and disk usage. Pure data + a couple of pure filters, same pattern as every other `engine/*` module — no DOM, independently testable.
+- **Permissions apply to these too, not just files.** `journalctl` and `dmesg` are gated exactly like real Debian/Ubuntu: `journalctl` needs root or the `adm` group (same rule as `/var/log/auth.log`); `dmesg` is root-only (`kernel.dmesg_restrict`), full stop — even `adm` members need `sudo`. `ss -tulpn`/`netstat -tulpn` redact the owning process/PID for sockets you don't own, unless you're root — exactly like the real tools without `sudo`. `du -sh` respects read access, same as `ls`.
+- **`find` learns `-perm`** — `find [path] -perm -4000` (SUID), `-2000` (SGID), `-1000` (sticky), `/6000` (either SUID or SGID), plus `-type f`/`-type d`, with real find semantics (`-N` = at least these bits, `/N` = any of these bits, bare `N` = exact match). A new SGID example (`/opt/app/shared`, mode `2775`) was added since nothing in the tree had the SGID bit before.
+- **Two realistic findings, discoverable two different ways each.** A backup job (`/etc/cron.d/backup-job`, world-readable) and a monitoring agent (`ps aux`) both pass a secret on the command line — `--password` and `--token`. The SAME backup password shows up whether you read the cron file or run `ps aux` while it's running, which is the point: secrets on a CLI are visible to **every local user**, via more than one route. A planted `getcap` finding (`/usr/bin/python3.11` with `cap_setuid+eip`) demonstrates that a SUID-only audit (`find -perm -4000`) misses capability-based privilege, a very real blind spot. None of these is wired up as an actual, executable escalation in this release — enumeration/investigation only, by design; `/etc/sudoers` and its `sudoers.d` drop-in stay inert.
+- **Realistic file content, not just descriptions.** `/etc/sudoers`, `/etc/sudoers.d/90-custom`, `/etc/crontab` and the new `/etc/cron.d/backup-job` now contain real-looking file text (not just a one-line note) when you `cat` them. Fixed `/etc/crontab`'s mode from 600 to the real-world default 644 (world-readable; only root can write it — the note explains why that's correct, unlike a 600 per-user crontab). Added a second per-user crontab (`alice`'s) so `ls -la /var/spool/cron/crontabs/` has more than one entry to look at.
+- **54 new tests** — `tests/engine/sysinfo.test.js` (data integrity + the two pure filters) and `tests/regression/sysinvestigation.test.js` (every new command, end-to-end, through the real `runCommand()`), following the exact same patterns as the rest of the suite.
+- Roadmap item checked off: terminal-based system/log investigation commands.
+
+## v2.4.2
+
+A hardening and correctness release — no new learning content, but the terminal is now safe to put in front of a class.
+
+- **Fixed: HTML injection through file names.** In v2.4.1, `ls`, `ls -l`, `tree`, `find` and `stat` printed learner-created names without escaping, so `touch "<b>x"` followed by `ls` rendered markup (self-XSS). Fixed in three layers: names are escaped at every output site; `touch`/`mkdir`/`mv`/`cp`/`ln -s` refuse names containing `< > & "` or control characters (`engine/shell-parse.js`); and `printLine` now runs every line through `sanitizeTerminalHTML()` (`engine/safe-html.js`), which escapes any tag other than the terminal's own `<span class="t-…">`.
+- **Quoting now works in the terminal.** `touch "my file"`, `touch my\ file` and `chmod 600 'a b'` behave like a real shell (single quotes literal, double quotes with `\"`/`\\` escapes, adjacent pieces joined, `""` is an empty argument). An unterminated quote prints an error and runs nothing. Pipes, redirection and globbing are still not supported.
+- **Content-Security-Policy.** `index.html` ships a CSP (`script-src 'self'`, no `unsafe-eval`, `object-src/base-uri/form-action/connect-src 'none'`). The two inline scripts moved to `assets/js/boot-lang.js` and `assets/js/boot-fallback.js`. `style-src` still allows `'unsafe-inline'` because the UI sets inline `style` attributes; removing that is a follow-up.
+- **Versions unified** — `package.json`, the README and the tests now agree (a test enforces it).
+- **New tests (+52):** tokenizer and name rules, the sanitizer, end-to-end terminal safety (including a node planted straight into the tree to prove the safety net), EN/AR dictionary and content-overlay parity, and static checks on `index.html` (CSP present, no inline scripts/handlers, every external origin allowed, every local file exists).
+
+## v2.4
+
+- **Real users in the terminal** — `su [-] [user]`, `sudo [-u user] <cmd>` / `sudo -i`, `exit`, plus `id`/`groups <user>`. Six accounts (`root`, `user`, `alice`, `deployer`, `monitoring`, `www-data`) with real group membership; the prompt changes (`$` → `#` for root); `sudo` is refused for anyone outside the `sudo` group, with the classic "not in the sudoers file" message.
+- **Permissions are now actually enforced** — before, every terminal command ran as an all-powerful user. Now `cat`, `ls`, `cd`, `stat`, `find`, `grep`, `tree`, `touch`, `mkdir`, `rm`, `mv`, `cp`, `chmod`, `chown`, `chgrp` and `setfacl` follow the same rules as the kernel: owner → named ACL (capped by the mask) → group → others, `x` needed on every directory in the path, `w` on the *parent* to create/delete, the sticky bit on `/tmp`, `chmod` for owner/root only, `chown` for root only. Every "Permission denied" comes with a one-line **why** naming the permission class that decided it.
+- **`umask`** — `umask`, `umask -S`, `umask 077`. `touch`, `mkdir` and `cp` honour it and print the arithmetic (`666 & ~022 = 644`). Each `su` shell starts at `022`; `exit` restores yours.
+- **`ln -s`** — create symlinks (`-f` to replace). Targets are stored verbatim, dangling links are allowed and flagged, relative targets resolve from the link's directory, and a link to a file you can't read still can't be read — which is the whole point.
+- **Fixed a real-world ACL gotcha in the seeded scenario** — `monitoring` had a file ACL on `app.yml` but no way to reach it (`/opt/app/config` is `750 root:root`). The directory now carries a matching `--x` ACL, and the file's description explains why a file ACL alone is not enough. Try `su monitoring`, then `cat /opt/app/config/app.yml`; compare with `su alice`.
+- **71 new tests** — pure engine rules (`engine/users.js`) plus end-to-end terminal tests that drive the real `runCommand()` through a small DOM shim.
+- Behavior changes to be aware of: the default user can no longer read `/etc/shadow`, `cd /root`, or `chown` without `sudo`; `chown`/`chgrp` now reject unknown users/groups; `cp` produces a copy owned by the copier (mode = source & ~umask); `chmod` through a symlink now also recalculates an ACL mask (it skipped that before).
+
+## v2.3
+
+- **Content expansion** — 2 new Learn topics (Special File Attributes/chattr, su vs sudo), 13 new Quiz questions (ACL mask math, Symlinks, chattr, su vs sudo), 1 new Advanced-tier Lab ("Grant Access Without Groups"), and 8 new Challenges (2 per tier) — all tying back into the ACL and symlink features above, fully bilingual. Totals are now 21 Learn topics, 113 Quiz questions, 11 Labs, and 88 Challenges.
+- **Guided Path** — a new stepper on the Progress dashboard sequencing Learn → Labs → Challenges → Quiz, with a "Continue" button that jumps straight to your next unfinished phase (and, for Learn, your next unread topic). Expanding a Learn topic now marks it read; a new 13th achievement, Path Complete, unlocks once every phase is done.
+- **Interactive ACL** — `getfacl`/`setfacl` are now real terminal commands, not just a Learn topic: add or remove named user/group entries, watch the mask auto-recalculate exactly like real POSIX ACLs, and see the classic `+` suffix appear in `ls -l`/`stat` (the app's config file ships with one seeded example to explore).
+- **Symlink permission scenario** — 2 annotated symlinks in the fake filesystem (a benign relative link, and a link inside world-writable `/tmp` pointing at a restricted log) teaching that a symlink's own mode is always cosmetic `777`; `ls -l`/`stat` display it correctly, and `cat`/`chmod`/`chown`/`chgrp` all follow the link to its real target, exactly like the real commands do without `-h`.
+- **Shareable/exportable progress** — a new panel on the Progress dashboard to copy a one-line shareable summary or download a full JSON snapshot (level, XP, per-module completion, achievements) of your local progress.
+- **Redesigned home page** — a real-numbers stats bar in the hero, a "How it works" (Learn → Practice → Prove it) section, elevated feature-card hover states, and a proper multi-column footer.
+- Both new features are fully bilingual (English/Arabic) UI chrome; the new terminal help text follows the existing scope note and stays English-only.
+
+## v2.2
+
+- **Full Arabic (العربية) translation** with a one-click language toggle in the sidebar — persists across visits.
+- **RTL layout** — the sidebar, navigation, cards and forms all mirror correctly under `dir="rtl"`, while code/commands/terminal output stay left-to-right since shell syntax is universal.
+- Every UI string, all 19 Learn topics, all 10 Labs, all 80 Challenges, all 100 Quiz questions, all 12 Achievements, and the Cheat Sheet reference table are translated.
+- Arabic uses the Cairo typeface; English keeps the existing Space Grotesk/Inter/JetBrains Mono stack.
+- Scope note: the Cheat Sheet's supplementary troubleshooting prose/best-practice list and the terminal's `help` text remain English-only in this release — see the Roadmap.
+
+## v2.1
+
+- **21 Learn topics** — a full reference curriculum with diagrams, examples, command references, tips and warnings
+- **11 Interactive Labs** — guided, multi-step walkthroughs from a first SSH key fix to a capstone permission audit and an ACL-based access grant
+- **88 Challenges** — 22 each across Beginner / Intermediate / Advanced / Expert
+- **113-question Quiz** — multiple-choice rounds across every topic, with instant explanations
+- **Achievements** — 13 unlockable badges derived from your actual progress
+- **Progress dashboard** — XP, levels, stats, and a printable certificate once you clear the curriculum
+- **Expanded fake filesystem** — 59 files across `/etc`, `/var`, `/opt`, `/usr`, `/tmp`, `/home`, `/root`, now with owner/group metadata
+- **Expanded terminal** — `find`, `grep`, `touch`, `mkdir`, `rm`, `mv`, `cp`, `tree`, `stat`, `id`, `groups`, `chown`, `chgrp`, `ls -la`, simulated `nano`/`vim`
+- **Author credit** — footer, hero badge and a full About-the-author section, none of it intrusive
+
+Every original v1 feature (Simulator, Filesystem, Calculator, Terminal, Challenges, Cheat Sheet, About, Security Analyzer, SUID/SGID/Sticky visualizer) is unchanged in behavior and still fully functional.
+
+---

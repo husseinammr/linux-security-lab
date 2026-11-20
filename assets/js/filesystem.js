@@ -1,0 +1,326 @@
+/**
+ * filesystem.js
+ * Module 2 — File System Simulator (expanded in v2.1).
+ * A fake filesystem tree the learner can click through. Selecting a node
+ * hands its permission state to the Simulator's permission editor. Also
+ * powers the Terminal simulator (ls, cd, cat, find, grep, stat, chmod,
+ * chown, chgrp, touch, mkdir, rm, mv, cp).
+ *
+ * Node shape: { name, isDir, octal, owner, group, sensitive?, note?, children? }
+ * `path` is assigned automatically by assignPaths() — never type full paths
+ * by hand, so restructuring the tree can't leave stale paths behind.
+ */
+
+import { el, qs } from "./utils.js";
+import { octalToState } from "./converter.js";
+import { analyzePermissions } from "./security.js";
+
+/** Shorthand builders keep the tree declaration free of repeated boilerplate. */
+function f(name, octal, opts = {}) {
+  return { name, isDir: false, octal, owner: opts.owner || "root", group: opts.group || "root",
+    sensitive: !!opts.sensitive, note: opts.note || "", acl: opts.acl || [] };
+}
+function d(name, octal, children, opts = {}) {
+  return { name, isDir: true, octal, owner: opts.owner || "root", group: opts.group || "root",
+    sensitive: !!opts.sensitive, note: opts.note || "", children,
+    ...(opts.acl ? { acl: opts.acl } : {}) };
+}
+/** Symlinks always report as 777 (lrwxrwxrwx) — the OS ignores a link's own
+ *  bits and enforces whatever the *target* allows. `target` is stored as
+ *  the raw string the link points to, exactly like `readlink` would print it
+ *  (relative or absolute), and is never itself walked/validated. */
+function l(name, target, opts = {}) {
+  return { name, isDir: false, isSymlink: true, target, octal: "777",
+    owner: opts.owner || "root", group: opts.group || "root",
+    sensitive: !!opts.sensitive, note: opts.note || "" };
+}
+
+export const FS_TREE = d("", "755", [
+  d("etc", "755", [
+    f("passwd", "644", { note: "World-readable by design — it holds account metadata, not password hashes." }),
+    f("shadow", "640", { group: "shadow", sensitive: true, note: "Holds password hashes. Should never be world-readable." }),
+    f("gshadow", "640", { group: "shadow", sensitive: true, note: "Group password hashes — same sensitivity as shadow." }),
+    f("group", "644", { note: "Maps group names to GIDs and members — safe to be world-readable." }),
+    f("sudoers", "440", { sensitive: true, note: "Defines who can run commands as root. Must never be group- or world-writable (440 is correct: root can read/edit, nobody else can even read it).\n\nDefaults        env_reset\nDefaults        secure_path=\"/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin\"\n\nroot    ALL=(ALL:ALL) ALL\n%sudo   ALL=(ALL:ALL) ALL\n\n#includedir /etc/sudoers.d\n\nThis is the whole rule set in this lab: root, and anyone in the 'sudo' group, may run anything as anyone. Run 'sudo -l' as different users to see this rule evaluated per-account." }),
+    d("sudoers.d", "750", [
+      f("90-custom", "440", { sensitive: true, note: "Drop-in sudo rule file \u2014 same strict permissions as the main sudoers file (440). This one is currently just a placeholder:\n\n# Site-specific sudo rules go here.\n# (empty \u2014 no extra rules beyond /etc/sudoers today)\n\nWorth re-checking after any change: a single misplaced NOPASSWD line in a file like this is one of the most common real-world routes to full root." }),
+    ]),
+    d("cron.d", "755", [
+      f("backup-job", "644", { sensitive: true, note: "A drop-in cron job \u2014 world-readable like every file under /etc/cron.d, which is normal. What is NOT normal: the command embeds a plaintext password.\n\n30 3 * * *   root   /opt/app/bin/nightly_backup.sh --db app_db --user backup_svc --password Spring2024!\n\nOn Linux, a process's full command line (including arguments) is visible to every local user \u2014 via this file, or via `ps aux` while the job is running (pid 2140), or by reading /proc/<pid>/cmdline directly. Secrets belong in a 600 file the script reads, or an environment file cron can source \u2014 never on the command line. See also: ps aux." }),
+    ]),
+    f("crontab", "644", { note: "System-wide cron table. Unlike a per-user crontab (/var/spool/cron/crontabs/<user>, mode 600), /etc/crontab is world-READABLE by default \u2014 security here relies on only root being able to WRITE it, not on hiding it. The 6th column (missing from per-user crontabs) names who the job runs as:\n\n# m h dom mon dow user  command\n17 *    * * *   root    cd / && run-parts --report /etc/cron.hourly\n25 6    * * *   root    test -x /usr/sbin/anacron || ( cd / && run-parts --report /etc/cron.daily )\n47 6    * * 7   root    test -x /usr/sbin/anacron || ( cd / && run-parts --report /etc/cron.weekly )\n52 6    1 * *   root    test -x /usr/sbin/anacron || ( cd / && run-parts --report /etc/cron.monthly )\n\nSee also /etc/cron.d/ for one-off drop-in jobs \u2014 try: cat /etc/cron.d/backup-job" }),
+    f("fstab", "644", { note: "Filesystem mount table — world-readable is normal and expected." }),
+    f("hosts", "644", { note: "Static hostname resolution — world-readable." }),
+    f("hostname", "644", { note: "This machine's hostname." }),
+    f("resolv.conf", "644", { note: "DNS resolver configuration." }),
+    f("machine-id", "444", { note: "Unique machine identifier — read-only for everyone, written once at install." }),
+    f("os-release", "644", { note: "Distro identification info, safe to be world-readable." }),
+    f("nginx.conf", "644", { note: "Server configuration — typically owner-writable, world-readable." }),
+    d("ssh", "755", [
+      f("sshd_config", "600", { sensitive: true, note: "SSH daemon configuration. Misconfigured permissions can weaken the whole server." }),
+      f("ssh_host_rsa_key", "600", { sensitive: true, note: "The server's private host key — must be readable only by root." }),
+      f("ssh_host_rsa_key.pub", "644", { note: "The matching public key — safe to be world-readable." }),
+    ]),
+    d("skel", "755", [
+      f(".bashrc", "644", { note: "Template shell config copied into new users' home directories." }),
+    ]),
+  ]),
+
+  d("var", "755", [
+    d("log", "755", [
+      f("auth.log", "640", { group: "adm", sensitive: true, note: "Authentication events, including failed logins — restrict to admins." }),
+      f("syslog", "640", { group: "adm", sensitive: true, note: "General system log, can contain sensitive operational detail." }),
+      f("wtmp", "664", { group: "utmp", note: "Login history database, read by `last` — group-writable by design for the utmp group." }),
+      f("btmp", "600", { sensitive: true, note: "Failed login attempts — owner-only, often used to detect brute-force attempts." }),
+      f("lastlog", "644", { note: "Per-user last-login timestamps." }),
+      d("nginx", "755", [
+        f("access.log", "644", { note: "Web server access log — generally fine to be world-readable." }),
+        f("error.log", "640", { sensitive: true, note: "Can leak internal paths and stack traces — restrict to owner and group." }),
+      ]),
+    ], { group: "adm" }),
+    d("www", "755", [
+      d("html", "755", [
+        f("index.html", "644", { owner: "www-data", group: "www-data", note: "Public homepage." }),
+        f("config.php", "644", { owner: "www-data", group: "www-data", sensitive: true,
+          note: "Holds database credentials but sits in a web-servable directory at 644 — a classic misconfiguration; should be 640 at most." }),
+        d("uploads", "777", [
+          f("avatar_12.png", "666", { owner: "www-data", group: "www-data", note: "User-uploaded file inheriting the directory's over-permissive mode." }),
+        ], { owner: "www-data", group: "www-data", sensitive: true, note: "World-writable upload directory — a common and dangerous misconfiguration." }),
+      ], { owner: "www-data", group: "www-data" }),
+    ]),
+    d("mail", "1777", [
+      f("user", "660", { owner: "user", group: "mail", note: "A user's personal mailbox file." }),
+    ], { group: "mail", note: "Mail spool directory — world-writable with the sticky bit, same pattern as /tmp." }),
+    d("spool", "755", [
+      d("cron", "755", [
+        d("crontabs", "1730", [
+          f("user", "600", { owner: "user", group: "crontab", note: "*/15 * * * *  /home/user/scripts/sync_notes.sh\n\nA user's personal cron schedule \u2014 no 'user' column here (unlike /etc/crontab): a per-user crontab always runs as its owner." }),
+          f("alice", "600", { owner: "alice", group: "crontab", note: "0 2 * * *  /home/alice/project/nightly_build.sh\n\nAlice's personal cron schedule." }),
+        ], { group: "crontab", note: "Per-user crontab storage — sticky, group-writable by the crontab group only." }),
+      ]),
+    ]),
+  ]),
+
+  d("opt", "755", [
+    d("app", "755", [
+      f("app.jar", "644", { note: "Application artifact — doesn't need to be executable directly." }),
+      d("config", "750", [
+        f("app.yml", "640", { sensitive: true, acl: [{ type: "user", id: "monitoring", perms: "r--" }],
+          note: "Application configuration including API keys — owner/group only by the base bits, plus one extra grant: run 'getfacl' on this file to see it. A monitoring service account was given read access via a named ACL entry instead of being added to the owning group, which would have been far more permissive. The same account also has a --x ACL entry on this file's DIRECTORY (/opt/app/config): a file ACL alone isn't enough, because reaching a file needs search (x) on every directory above it. Try it: su monitoring, then cat /opt/app/config/app.yml." }),
+      ], { acl: [{ type: "user", id: "monitoring", perms: "--x" }],
+        note: "Config directory — 750 root:root, plus a named ACL entry letting the monitoring account search (x) into it without joining the group." }),
+      d("bin", "755", [
+        f("start.sh", "750", { note: "Startup script — owner and group can run it, others can't." }),
+      ]),
+      d("shared", "2775", [
+        f("RELEASE_NOTES.md", "664", { owner: "deployer", group: "deployer", note: "A file dropped by whoever last ran a deploy \u2014 owned by them, but note the GROUP is 'deployer' even if their own primary group isn't, because of the SGID bit above." }),
+      ], { owner: "root", group: "deployer", note: "A shared team directory \u2014 mode 2775: the leading 2 is the SGID bit on a DIRECTORY, which means every new file or subdirectory created inside automatically inherits the group 'deployer', no matter who creates it or what their own primary group is. Compare with a plain 0775 directory, where a new file gets the CREATOR's primary group instead. This is the standard way to make a shared drop folder behave consistently for a whole team." }),
+    ]),
+  ]),
+
+  d("usr", "755", [
+    d("bin", "755", [
+      f("passwd", "4755", { sensitive: true, note: "The real-world SUID example: runs as root so ordinary users can update their own password hash in /etc/shadow." }),
+      f("sudo", "4755", { sensitive: true, note: "SUID root — controls privilege escalation for the whole system; a favorite audit target." }),
+      f("su", "4755", { sensitive: true, note: "SUID root — switches users; same audit priority as sudo." }),
+      f("ping", "4755", { sensitive: true, note: "Classically SUID so unprivileged users can open raw sockets to send ICMP packets." }),
+    ]),
+    d("local", "755", [
+      d("bin", "755", [
+        f("deploy.sh", "750", { owner: "deployer", group: "deployer", note: "Internal deployment script — restricted to the deploy service account and its group." }),
+      ]),
+    ]),
+    d("sbin", "755", [
+      f("useradd", "4750", { sensitive: true, note: "Privileged user-management tool — SUID, restricted to root's admin group." }),
+    ]),
+    d("share", "755", [
+      d("doc", "755", [
+        f("readme", "644", { note: "Generic documentation file — no special sensitivity." }),
+      ]),
+    ]),
+  ]),
+
+  d("tmp", "1777", [
+    f("session_abc123", "600", { owner: "user", note: "A user's private session file — correctly locked down even inside a shared directory." }),
+    f("upload_tmp", "666", { owner: "user", sensitive: true, note: "A temp upload left world-writable — anyone could tamper with it before it's processed." }),
+    f(".hidden_script.sh", "777", { owner: "user", sensitive: true, note: "A hidden script that is both world-writable and world-executable — a critical, easily-missed exposure." }),
+    l("current_auth_log", "/var/log/auth.log", { owner: "user", sensitive: true,
+      note: "A symlink created inside the world-writable /tmp, pointing at a log restricted to root and the adm group. Anyone can create this link — /tmp being world-writable is about creating and deleting entries, not about what those entries can point to. Reading through it still checks the target's real permissions (640, group adm), not the link's own. Always inspect what a link points to, never the link itself." }),
+  ], { note: "World-writable with the sticky bit set — the standard, safe configuration for a shared scratch directory." }),
+
+  d("home", "755", [
+    d("user", "750", [
+      d(".ssh", "700", [
+        f("authorized_keys", "600", { owner: "user", group: "user", sensitive: true, note: "Grants SSH login. Must be readable only by its owner." }),
+        f("id_rsa", "600", { owner: "user", group: "user", sensitive: true, note: "Private SSH key — 600 is the only acceptable mode." }),
+        f("id_rsa.pub", "644", { owner: "user", group: "user", note: "The matching public key, safe to share." }),
+      ], { owner: "user", group: "user" }),
+      d(".aws", "700", [
+        f("credentials", "600", { owner: "user", group: "user", sensitive: true, note: "Cloud API keys — treat exactly like an SSH private key." }),
+      ], { owner: "user", group: "user" }),
+      d("public_html", "755", [
+        f("index.html", "644", { owner: "user", group: "user", note: "Public personal page." }),
+        f("database.conf", "644", { owner: "user", group: "user", sensitive: true,
+          note: "Contains database credentials but sits in a web-servable directory at 644 — a common misconfiguration." }),
+      ], { owner: "user", group: "user" }),
+      f("backup.sql", "666", { owner: "user", group: "user", sensitive: true, note: "A full database dump, world-writable. Anyone on the box can corrupt it." }),
+      l("latest_backup.sql", "backup.sql", { owner: "user", group: "user",
+        note: "An ordinary relative symlink to backup.sql in the same directory. `ls -l` always reports symlinks as lrwxrwxrwx (777) no matter what you chmod them to — that's cosmetic. The permissions that actually govern access live on backup.sql itself, which is why this link and its target can show completely different security verdicts." }),
+      f("script.sh", "755", { owner: "user", group: "user", note: "An executable shell script — 755 is standard so the owner can edit and everyone can run it." }),
+      f("notes.txt", "644", { owner: "user", group: "user", note: "Ordinary personal notes." }),
+      f(".bash_history", "600", { owner: "user", group: "user", note: "Command history — can contain pasted secrets, so owner-only is correct." }),
+    ], { owner: "user", group: "user" }),
+    d("alice", "750", [
+      d(".ssh", "700", [
+        f("id_ed25519", "644", { owner: "alice", group: "alice", sensitive: true,
+          note: "A private key mistakenly left world-readable — ssh-keygen defaults to 600 for a reason." }),
+      ], { owner: "alice", group: "alice" }),
+      d("project", "755", [
+        f("README.md", "644", { owner: "alice", group: "alice", note: "Project documentation." }),
+        f("deploy_key", "640", { owner: "alice", group: "alice", sensitive: true, note: "A deploy key shared with the group — should not be world-readable, and isn't." }),
+      ], { owner: "alice", group: "alice" }),
+    ], { owner: "alice", group: "alice" }),
+  ]),
+
+  d("root", "700", [
+    d(".ssh", "700", [
+      f("authorized_keys", "600", { owner: "root", group: "root", sensitive: true, note: "Root SSH login — the highest-value key on the machine." }),
+    ], { owner: "root", group: "root" }),
+    f(".bash_history", "600", { owner: "root", group: "root", note: "Root's command history — owner-only." }),
+    f("root_notes.txt", "600", { owner: "root", group: "root", note: "Private admin notes." }),
+  ], { owner: "root", group: "root" }),
+]);
+
+/* Assign every node's path from its position in the tree, so the data above
+   never needs to repeat a full path by hand. */
+export function assignPaths(node, parentPath) {
+  node.path = parentPath === "" ? "/" + node.name : parentPath + "/" + node.name;
+  if (node.name === "") node.path = "/";
+  if (node.children) node.children.forEach((c) => assignPaths(c, node.path === "/" ? "" : node.path));
+}
+assignPaths(FS_TREE, "");
+
+let onSelectCallback = null;
+let selectedPath = "/etc/passwd";
+
+export function onFilesystemSelect(cb) {
+  onSelectCallback = cb;
+}
+
+function nodeIcon(node) {
+  const svgNS = "http://www.w3.org/2000/svg";
+  const svg = document.createElementNS(svgNS, "svg");
+  svg.setAttribute("viewBox", "0 0 24 24");
+  svg.setAttribute("fill", "none");
+  svg.classList.add("fs-icon");
+  svg.innerHTML = node.isSymlink
+    ? '<path d="M9.5 14.5 14.5 9.5" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/><path d="M11 6.5h1.5A3.5 3.5 0 0 1 16 10v0a3.5 3.5 0 0 1-3.5 3.5H11" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/><path d="M13 17.5h-1.5A3.5 3.5 0 0 1 8 14v0a3.5 3.5 0 0 1 3.5-3.5H13" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/>'
+    : node.isDir
+    ? '<path d="M3 7a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V7Z" stroke="currentColor" stroke-width="1.6"/>'
+    : '<path d="M6 3h8l4 4v14a1 1 0 0 1-1 1H6a1 1 0 0 1-1-1V4a1 1 0 0 1 1-1Z" stroke="currentColor" stroke-width="1.6"/><path d="M14 3v4h4" stroke="currentColor" stroke-width="1.6"/>';
+  return svg;
+}
+
+function renderNode(node, container) {
+  const state = octalToState(node.octal, node.isDir);
+  const analysis = analyzePermissions(state, { isSensitive: !!node.sensitive, isSymlink: !!node.isSymlink, hasAcl: !!(node.acl && node.acl.length) });
+
+  const btn = el("button", {
+    class: `fs-node-btn ${node.path === selectedPath ? "selected" : ""} ${analysis.level === "critical" && !node.isSymlink ? "is-risky" : ""}`,
+    type: "button",
+    "data-path": node.path,
+    "aria-pressed": node.path === selectedPath ? "true" : "false",
+    "data-tooltip": node.isSymlink ? `${node.owner}:${node.group} → ${node.target}` : `${node.owner}:${node.group}`,
+    onClick: () => selectNode(node),
+  }, [
+    nodeIcon(node),
+    el("span", { class: "fs-name" }, node.isDir ? node.name + "/" : node.name + (node.isSymlink ? ` → ${node.target}` : "")),
+    el("span", { class: `fs-perm-chip${node.isSymlink ? " fs-perm-chip-link" : ""}` }, node.isSymlink ? "link" : node.octal),
+  ]);
+  container.append(btn);
+
+  if (node.children && node.children.length) {
+    const group = el("div", { class: "fs-group" });
+    node.children.forEach((child) => renderNode(child, group));
+    container.append(group);
+  }
+}
+
+function selectNode(node) {
+  selectedPath = node.path;
+  renderFilesystem();
+  if (onSelectCallback) onSelectCallback(node);
+}
+
+export function getSelectedNode() {
+  return findNode(FS_TREE, selectedPath);
+}
+
+export function findNode(node, path) {
+  if (node.path === path) return node;
+  if (!node.children) return null;
+  for (const child of node.children) {
+    const found = findNode(child, path);
+    if (found) return found;
+  }
+  return null;
+}
+
+/** Resolve a user-typed path (absolute or relative to cwd) the way the shell would. */
+export function resolvePath(cwd, target) {
+  if (!target || target === "~") return "/home/user";
+  if (target.startsWith("/")) return normalizeSegments(target);
+  if (target === ".") return cwd;
+  if (target === "..") return parentPath(cwd);
+  const base = cwd === "/" ? "" : cwd;
+  return normalizeSegments(base + "/" + target);
+}
+
+function normalizeSegments(path) {
+  const parts = path.split("/").filter(Boolean);
+  const stack = [];
+  for (const part of parts) {
+    if (part === ".") continue;
+    if (part === "..") stack.pop();
+    else stack.push(part);
+  }
+  return "/" + stack.join("/");
+}
+
+export function parentPath(path) {
+  if (path === "/") return "/";
+  const parts = path.split("/").filter(Boolean);
+  parts.pop();
+  return parts.length ? "/" + parts.join("/") : "/";
+}
+
+/** Resolve a symlink node to the node it points at (relative or absolute
+ *  target), the way the kernel would when following the link. Returns null
+ *  for a dangling link — nothing here ever throws on a bad target. */
+export function resolveSymlink(node) {
+  if (!node || !node.isSymlink) return node;
+  const targetPath = resolvePath(parentPath(node.path), node.target);
+  return findNode(FS_TREE, targetPath);
+}
+
+/** Flatten the whole tree — used by `find` and `grep` in the terminal. */
+export function flattenTree(node = FS_TREE, acc = []) {
+  if (node !== FS_TREE) acc.push(node);
+  if (node.children) node.children.forEach((c) => flattenTree(c, acc));
+  return acc;
+}
+
+export function renderFilesystem(mountSelector = "#fs-tree-mount") {
+  const mount = qs(mountSelector);
+  if (!mount) return;
+  mount.innerHTML = "";
+  const tree = el("div", { class: "fs-tree" });
+  FS_TREE.children.forEach((child) => renderNode(child, tree));
+  mount.append(tree);
+}
+
+export function initFilesystem() {
+  renderFilesystem();
+  const initial = getSelectedNode();
+  if (initial && onSelectCallback) onSelectCallback(initial);
+}
